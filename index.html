@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" type="text/css" href="https://www.w3schools.com/w3css/3/w3.css" />
+    <script src="webadb.js"></script>
+</head>
+<body>
+    <div id="nowebusb" class="w3-container w3-block w3-sand w3-border w3-border-red w3-left-align w3-round" style="visibility: hidden">
+      <p>
+        WebUSB API is disabled or not supported by your browser.<br>
+        Chrome users may visit chrome://flags/#enable-experimental-web-platform-features
+        (<a href="https://developers.google.com/web/updates/2016/03/access-usb-devices-on-the-web#before_we_start">more details</a>).
+      </p>
+    </div>
+    <div id="disclaimer" class="w3-container w3-block w3-sand w3-border w3-border-orange w3-left-align w3-round" style="visibility: hidden">
+      <p>
+        This page is supposed to access a device connected to your PC via USB.
+        The whole elaboration is done locally and under your complete responsibility.
+      </p><p>
+        <button onclick="accept_disclaimer()" class="w3-button w3-green">I understand and accept</button>
+        <a href="https://github.com/cavokz/cavokz.github.io/blob/master/usb/index.html">Look at the source code</a>
+      </p>
+    </div>
+    <div id="connect" class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="visibility: hidden">
+      <p>
+        <div class="w3-container w3-cell w3-cell-middle">
+          <button id="connect_btn" onclick="connect_usb()" class="w3-button w3-green" disabled>Connect</button>
+	</div>
+        <div class="w3-container w3-cell w3-cell-middle">
+          <span id="connect_message" style="visibility: hidden">{{message}}</span>
+	</div>
+      </p>
+    </div>
+    <div id="execute" class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="visibility: hidden">
+      <p>
+        <div class="w3-container w3-cell w3-cell-middle">
+          <button id="execute_btn" type="submit" onclick="execute_usb()" class="w3-button w3-green" disabled>Send</button>
+	</div>
+        <div class="w3-container w3-cell w3-cell-middle">
+          <input id="execute_cmd" type="text" class="w3-input w3-border w3-round" />
+	</div>
+      </p>
+    </div>
+    <div id="cancel" class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="visibility: hidden">
+      <p>
+        <pre id="execute_output" style="font-size: 0.75em"></pre>
+        <button id="cancel_btn" onclick="cancel_usb()" class="w3-button w3-green">Cancel</button>
+        <span id="cancel_message" style="visibility: hidden">{{message}}</span>
+      </p>
+    </div>
+    <span id="bottom"></span>
+
+    <script>
+var params = location.search.substring(1).split("&");
+var webusb = null;
+var adb = null;
+var fastboot = null;
+var shell = null;
+
+for (p in params) {
+	var pair = params[p].split("=");
+	if (pair[0] == "debug" && pair[1] == "yes")
+		Adb.Opt.debug = true;
+	if (pair[0] == "dump" && pair[1] == "yes")
+		Adb.Opt.dump = true;
+}
+
+function setInnerById(id, inner)
+{
+	let node = document.getElementById(id);
+	if (node != null)
+		node.innerHTML = inner;
+}
+
+function setVisibilityById(id, visibility)
+{
+	let node = document.getElementById(id);
+	if (node != null)
+		node.style.visibility = visibility;
+}
+
+function removeElementById(id)
+{
+	let node = document.getElementById(id);
+	if (node != null)
+		node.parentNode.removeChild(node);
+}
+
+async function connect_usb()
+{
+	setVisibilityById("message", "hidden");
+
+	try {
+		if (webusb == null)
+			webusb = await Adb.open("WebUSB");
+
+		if (!webusb || !(webusb.isAdb() || webusb.isFastboot()))
+			throw new Error("Could not open either ADB or Fastboot");
+
+		let message = "";
+
+		if (webusb.isAdb())
+			message = "ADB: ";
+		if (webusb.isFastboot())
+			message = "FASTBOOT: ";
+
+		message += webusb.device.productName + " (" + webusb.device.manufacturerName + ")";
+		setInnerById("connect_message", message);
+		setVisibilityById("connect_message", "visible");
+	}
+	catch(error) {
+		console.log(error);
+		setInnerById("connect_message", error.message);
+		setVisibilityById("connect_message", "visible");
+		webusb = null;
+		return;
+	}
+
+	if (webusb.isFastboot()) {
+		try {
+			fastboot = null;
+			fastboot = await webusb.connectFastboot();
+			if (fastboot != null) {
+				console.log("FASTBOOT mode");
+				document.getElementById('connect_btn').disabled = true;
+				document.getElementById('execute_btn').disabled = false;
+				document.getElementById('execute_cmd').value = "getvar:all";
+				setVisibilityById("execute", "visible");
+			}
+		}
+		catch(error) {
+			console.log(error);
+			setInnerById("connect_message", error.message);
+			setVisibilityById("connect_message", "visible");
+			fastboot = null;
+			return;
+		}
+	}
+
+	if (webusb.isAdb()) {
+		try {
+			adb = null;
+			adb = await webusb.connectAdb("host::");
+			if (adb != null) {
+				console.log("ADB mode");
+				document.getElementById('connect_btn').disabled = true;
+				document.getElementById('execute_btn').disabled = false;
+				document.getElementById('execute_cmd').value = "shell:uname -a";
+				setVisibilityById("execute", "visible");
+			}
+		}
+		catch(error) {
+			console.log(error);
+			setInnerById("connect_message", error.message);
+			setVisibilityById("connect_message", "visible");
+			adb = null;
+			return;
+		}
+	}
+}
+
+async function execute_usb()
+{
+	let command = document.getElementById('execute_cmd');
+	let output = document.getElementById('execute_output');
+	let bottom = document.getElementById('bottom');
+
+	try {
+		if (adb != null ) {
+			shell = await adb.open(command.value);
+			setVisibilityById("execute_output", "visible");
+			setVisibilityById("cancel", "visible");
+			document.getElementById('cancel_btn').disabled = false;
+			document.getElementById('execute_btn').disabled = true;
+			document.getElementById('execute_cmd').disabled = true;
+			setVisibilityById("execute_message", "hidden");
+			output.innerHTML = "";
+
+			let decoder = new TextDecoder();
+			r = await shell.receive();
+			while (r.cmd == "WRTE") {
+				if (r.data != null) {
+					output.innerHTML += decoder.decode(r.data);
+					bottom.scrollIntoView();
+				}
+
+				shell.send("OKAY");
+				r = await shell.receive();
+			}
+
+			shell.close();
+			shell = null;
+		}
+
+		if (fastboot != null ) {
+			await fastboot.send(command.value);
+			setVisibilityById("execute_output", "visible");
+			setVisibilityById("cancel", "visible");
+			document.getElementById('cancel_btn').disabled = false;
+			document.getElementById('execute_btn').disabled = true;
+			document.getElementById('execute_cmd').disabled = true;
+			setVisibilityById("execute_message", "hidden");
+			output.innerHTML = "";
+
+			let decoder = new TextDecoder();
+			r = await fastboot.receive();
+			while (fastboot.get_cmd(r) == "INFO") {
+				output.innerHTML += decoder.decode(fastboot.get_payload(r)) + "\n";
+				r = await fastboot.receive(1 , 64);
+			}
+			let payload = fastboot.get_payload(r);
+			if (payload.length > 0)
+				payload += "\n";
+			output.innerHTML += decoder.decode(payload);
+		}
+	}
+	catch(error) {
+		console.log(error);
+		setInnerById("execute_output", error.message);
+		setVisibilityById("execute_message", "visible");
+	}
+
+	document.getElementById('cancel_btn').disabled = true;
+	document.getElementById('execute_btn').disabled = false;
+	document.getElementById('execute_cmd').disabled = false;
+}
+
+async function cancel_usb()
+{
+	if (shell != null) {
+		shell.close();
+		document.getElementById('cancel_btn').disabled = true;
+	}
+}
+
+function accept_disclaimer()
+{
+	removeElementById('disclaimer');
+	document.getElementById('connect_btn').disabled = false;
+}
+
+if (navigator.usb) {
+	setVisibilityById("disclaimer", "visible");
+	setVisibilityById("connect", "visible");
+	removeElementById("nowebusb");
+
+	if (location.host == "127.0.0.1")
+		accept_disclaimer();
+} else {
+	setVisibilityById("nowebusb", "visible");
+}
+    </script>
+</body>
+</html>
