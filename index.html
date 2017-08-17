@@ -4,53 +4,61 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" type="text/css" href="https://www.w3schools.com/w3css/3/w3.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/knockout/3.4.2/knockout-min.js"></script>
     <script src="webadb.js"></script>
 </head>
 <body>
-    <div id="nowebusb" class="w3-container w3-block w3-sand w3-border w3-border-red w3-left-align w3-round" style="visibility: hidden">
+  <form>
+    <div id="nowebusb" class="w3-container w3-block w3-sand w3-border w3-border-red w3-left-align w3-round" style="display: none">
       <p>
         WebUSB API is disabled or not supported by your browser.<br>
         Chrome users may visit chrome://flags/#enable-experimental-web-platform-features
         (<a href="https://developers.google.com/web/updates/2016/03/access-usb-devices-on-the-web#before_we_start">more details</a>).
       </p>
     </div>
-    <div id="disclaimer" class="w3-container w3-block w3-sand w3-border w3-border-orange w3-left-align w3-round" style="visibility: hidden">
+    <div id="disclaimer" data-bind="visible: state() == 'disclaimer'"
+         class="w3-container w3-block w3-sand w3-border w3-border-orange w3-left-align w3-round" style="display: none">
       <p>
         This page is supposed to access a device connected to your PC via USB.
         The whole elaboration is done locally and under your complete responsibility.
       </p><p>
-        <button onclick="accept_disclaimer()" class="w3-button w3-green">I understand and accept</button>
+        <input type="submit" data-bind="click: accept_disclaimer" class="w3-button w3-green" value="I understand and accept" />
         <a href="https://github.com/cavokz/cavokz.github.io/blob/master/usb/index.html">Look at the source code</a>
       </p>
     </div>
-    <div id="connect" class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="visibility: hidden">
+    <div data-bind="visible: 'usb' in navigator"
+         class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="display: none">
       <p>
         <div class="w3-container w3-cell w3-cell-middle">
-          <button id="connect_btn" onclick="connect_usb()" class="w3-button w3-green" disabled>Connect</button>
-	</div>
+          <input type="button" data-bind="click: connect_usb, enable: state() == 'available'" class="w3-button w3-green" value="Connect" />
+        </div>
         <div class="w3-container w3-cell w3-cell-middle">
-          <span id="connect_message" style="visibility: hidden">{{message}}</span>
-	</div>
+          <span data-bind="text: connect_message, visibile: connect_message() != ''"></span>
+        </div>
       </p>
     </div>
-    <div id="execute" class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="visibility: hidden">
+    <div data-bind="visible: is_execute_visible()"
+         class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="display: none">
       <p>
         <div class="w3-container w3-cell w3-cell-middle">
-          <button id="execute_btn" type="submit" onclick="execute_usb()" class="w3-button w3-green" disabled>Send</button>
-	</div>
-        <div class="w3-container w3-cell w3-cell-middle">
-          <input id="execute_cmd" type="text" class="w3-input w3-border w3-round" />
-	</div>
+          <input type="submit" data-bind="click: execute_usb, enable: is_execute_enabled()" class="w3-button w3-green" value="Send" />
+        </div>
+        <div class="w3-container w3-cell w3-cell-middle" style="width: 100%">
+          <input type="text" data-bind="value: execute_cmd, enable: is_execute_enabled(), hasFocus: is_execute_enabled()" class="w3-input w3-border w3-round"/>
+        </div>
       </p>
     </div>
-    <div id="cancel" class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="visibility: hidden">
+    <div data-bind="visible: is_cancel_visible(), style: { visibility: 'visible' }"
+         class="w3-container w3-block w3-sand w3-border w3-border-blue w3-left-align w3-round" style="visibility: hidden">
       <p>
-        <pre id="execute_output" style="font-size: 0.75em"></pre>
-        <button id="cancel_btn" onclick="cancel_usb()" class="w3-button w3-green">Cancel</button>
-        <span id="cancel_message" style="visibility: hidden">{{message}}</span>
+        <pre data-bind="text: execute_output, visible: execute_output() != ''" style="font-size: 0.75em"></pre>
+        <div class="w3-container w3-cell w3-cell-middle">
+          <input type="button" data-bind="click: cancel_usb, enable: is_cancel_enabled(), hasFocus: is_cancel_enabled()" class="w3-button w3-green" value="Cancel" />
+        </div>
       </p>
     </div>
     <span id="bottom"></span>
+  </form>
 
     <script>
 var params = location.search.substring(1).split("&");
@@ -67,20 +75,6 @@ for (p in params) {
 		Adb.Opt.dump = true;
 }
 
-function setInnerById(id, inner)
-{
-	let node = document.getElementById(id);
-	if (node != null)
-		node.innerHTML = inner;
-}
-
-function setVisibilityById(id, visibility)
-{
-	let node = document.getElementById(id);
-	if (node != null)
-		node.style.visibility = visibility;
-}
-
 function removeElementById(id)
 {
 	let node = document.getElementById(id);
@@ -90,8 +84,6 @@ function removeElementById(id)
 
 async function connect_usb()
 {
-	setVisibilityById("message", "hidden");
-
 	try {
 		if (webusb == null)
 			webusb = await Adb.open("WebUSB");
@@ -107,13 +99,11 @@ async function connect_usb()
 			message = "FASTBOOT: ";
 
 		message += webusb.device.productName + " (" + webusb.device.manufacturerName + ")";
-		setInnerById("connect_message", message);
-		setVisibilityById("connect_message", "visible");
+		this.connect_message(message);
 	}
 	catch(error) {
 		console.log(error);
-		setInnerById("connect_message", error.message);
-		setVisibilityById("connect_message", "visible");
+		this.connect_message(error.message);
 		webusb = null;
 		return;
 	}
@@ -124,17 +114,15 @@ async function connect_usb()
 			fastboot = await webusb.connectFastboot();
 			if (fastboot != null) {
 				console.log("FASTBOOT mode");
-				document.getElementById('connect_btn').disabled = true;
-				document.getElementById('execute_btn').disabled = false;
-				document.getElementById('execute_cmd').value = "getvar:all";
-				setVisibilityById("execute", "visible");
+				this.state("connected");
+				this.execute_cmd("getvar:all");
 			}
 		}
 		catch(error) {
 			console.log(error);
-			setInnerById("connect_message", error.message);
-			setVisibilityById("connect_message", "visible");
+			this.connect_message(error.message);
 			fastboot = null;
+			webusb = null;
 			return;
 		}
 	}
@@ -145,17 +133,15 @@ async function connect_usb()
 			adb = await webusb.connectAdb("host::");
 			if (adb != null) {
 				console.log("ADB mode");
-				document.getElementById('connect_btn').disabled = true;
-				document.getElementById('execute_btn').disabled = false;
-				document.getElementById('execute_cmd').value = "shell:uname -a";
-				setVisibilityById("execute", "visible");
+				this.state("connected");
+				this.execute_cmd("shell:uname -a");
 			}
 		}
 		catch(error) {
 			console.log(error);
-			setInnerById("connect_message", error.message);
-			setVisibilityById("connect_message", "visible");
+			this.connect_message(error.message);
 			adb = null;
+			webusb = null;
 			return;
 		}
 	}
@@ -163,26 +149,20 @@ async function connect_usb()
 
 async function execute_usb()
 {
-	let command = document.getElementById('execute_cmd');
-	let output = document.getElementById('execute_output');
+	let output = this.execute_output;
 	let bottom = document.getElementById('bottom');
+	let decoder = new TextDecoder();
 
 	try {
 		if (adb != null ) {
-			shell = await adb.open(command.value);
-			setVisibilityById("execute_output", "visible");
-			setVisibilityById("cancel", "visible");
-			document.getElementById('cancel_btn').disabled = false;
-			document.getElementById('execute_btn').disabled = true;
-			document.getElementById('execute_cmd').disabled = true;
-			setVisibilityById("execute_message", "hidden");
-			output.innerHTML = "";
+			this.state("running");
+			output("");
 
-			let decoder = new TextDecoder();
+			shell = await adb.open(this.execute_cmd());
 			r = await shell.receive();
 			while (r.cmd == "WRTE") {
 				if (r.data != null) {
-					output.innerHTML += decoder.decode(r.data);
+					output(output() + decoder.decode(r.data));
 					bottom.scrollIntoView();
 				}
 
@@ -192,64 +172,82 @@ async function execute_usb()
 
 			shell.close();
 			shell = null;
+			this.state("connected");
 		}
 
 		if (fastboot != null ) {
-			await fastboot.send(command.value);
-			setVisibilityById("execute_output", "visible");
-			setVisibilityById("cancel", "visible");
-			document.getElementById('cancel_btn').disabled = false;
-			document.getElementById('execute_btn').disabled = true;
-			document.getElementById('execute_cmd').disabled = true;
-			setVisibilityById("execute_message", "hidden");
-			output.innerHTML = "";
+			this.state("running");
+			output("");
 
-			let decoder = new TextDecoder();
+			await fastboot.send(this.execute_cmd());
 			r = await fastboot.receive();
 			while (fastboot.get_cmd(r) == "INFO") {
-				output.innerHTML += decoder.decode(fastboot.get_payload(r)) + "\n";
-				r = await fastboot.receive(1 , 64);
+				output(output() + decoder.decode(fastboot.get_payload(r)) + "\n");
+				r = await fastboot.receive();
 			}
+
 			let payload = fastboot.get_payload(r);
 			if (payload.length > 0)
 				payload += "\n";
-			output.innerHTML += decoder.decode(payload);
+			output(output() + decoder.decode(payload));
+			this.state("connected");
 		}
 	}
 	catch(error) {
 		console.log(error);
-		setInnerById("execute_output", error.message);
-		setVisibilityById("execute_message", "visible");
-	}
-
-	document.getElementById('cancel_btn').disabled = true;
-	document.getElementById('execute_btn').disabled = false;
-	document.getElementById('execute_cmd').disabled = false;
-}
-
-async function cancel_usb()
-{
-	if (shell != null) {
-		shell.close();
-		document.getElementById('cancel_btn').disabled = true;
+		this.connect_message(error.message);
+		this.state("available");
+		webusb = null;
 	}
 }
 
-function accept_disclaimer()
-{
-	removeElementById('disclaimer');
-	document.getElementById('connect_btn').disabled = false;
-}
+function WebADBViewModel() {
+	this.state = ko.observable("disclaimer");
 
-if (navigator.usb) {
-	setVisibilityById("disclaimer", "visible");
-	setVisibilityById("connect", "visible");
-	removeElementById("nowebusb");
+	this.connect_message = ko.observable();
+	this.execute_cmd = ko.observable();
+	this.execute_output = ko.observable();
+
+	this.is_execute_visible = function() {
+		return this.state() == "connected" || this.state() == "running";
+	};
+
+	this.is_execute_enabled = function() {
+		return this.state() == "connected";
+	};
+
+	this.is_cancel_visible = function() {
+		return this.state() == "connected" || this.state() == "running";
+	};
+
+	this.is_cancel_enabled = function() {
+		return this.state() == "running";
+	};
+
+	this.accept_disclaimer = function () {
+		removeElementById('disclaimer');
+		this.state("available");
+	};
+
+	this.connect_usb = connect_usb;
+	this.execute_usb = execute_usb;
+
+	this.cancel_usb = function() {
+		if (shell != null)
+			shell.close();
+		this.state("connected");
+	};
 
 	if (location.host == "127.0.0.1")
-		accept_disclaimer();
+		this.accept_disclaimer();
+};
+
+if ('usb' in navigator) {
+	removeElementById("nowebusb");
+	ko.applyBindings(new WebADBViewModel());
 } else {
-	setVisibilityById("nowebusb", "visible");
+	let nowebusb = document.getElementById("nowebusb");
+	nowebusb.style.display = null;
 }
     </script>
 </body>
