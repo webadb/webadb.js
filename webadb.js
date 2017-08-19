@@ -7,6 +7,9 @@ var Adb = {};
 	Adb.Opt.debug = false;
 	Adb.Opt.dump = false;
 
+	Adb.Opt.key_size = 2048;
+	Adb.Opt.keys = [];
+
 	Adb.open = function(transport) {
 		if (transport == "WebUSB")
 			return Adb.WebUSB.Transport.open();
@@ -36,7 +39,7 @@ var Adb = {};
 
 	Adb.WebUSB.Transport.prototype.send = function(ep, data) {
 		if (Adb.Opt.dump)
-			hexdump(new DataView(data), "==> ");
+			hexdump(new DataView(data), "" + ep + "==> ");
 
 		return this.device.transferOut(ep, data);
 	};
@@ -45,7 +48,7 @@ var Adb = {};
 		return this.device.transferIn(ep, len)
 			.then(response => {
 				if (Adb.Opt.dump)
-					hexdump(response.data, "<== ");
+					hexdump(response.data, "<==" + ep + " ");
 
 				return response.data;
 			});
@@ -84,17 +87,60 @@ var Adb = {};
 		let match = this.find(filter);
 		return this.device.selectConfiguration(match.conf.configurationValue)
 			.then(() => this.device.claimInterface(match.intf.interfaceNumber))
-			.then(() => this.device.selectAlternateInterface(match.intf.interfaceNumber, match.alt.alternateSetting));
+			.then(() => this.device.selectAlternateInterface(match.intf.interfaceNumber, match.alt.alternateSetting))
+			.then(() => match);
 	};
 
 	Adb.WebUSB.Transport.prototype.connectAdb = function(banner) {
 		let VERSION = 0x01000000;
-		let MAX_PAYLOAD = 4096;
+		let MAX_PAYLOAD = 256 * 1024;
+
+		let key_idx = 0;
+		let AUTH_TOKEN = 1;
+		let AUTH_SIGNATURE = 2;
+		let AUTH_RSAPUBLICKEY = 3;
 
 		let m = new Adb.Message("CNXN", VERSION, MAX_PAYLOAD, "" + banner + "\0");
 		return this.getDevice({ classCode: 255, subclassCode: 66, protocolCode: 1 })
-			.then(() => new Adb.WebUSB.Device(this))
+			.then(match => new Adb.WebUSB.Device(this, match))
 			.then(adb => m.send_receive(adb)
+				.then(function do_auth_token(response) {
+					if (response.cmd != "AUTH")
+						return response;
+
+					if (response.arg0 != AUTH_TOKEN)
+						throw new Error("Failed to connect with '" + banner + "', invalid AUTH response: " + response.arg0);
+
+					if (key_idx < Adb.Opt.keys.length) {
+						let key = Adb.Opt.keys[key_idx++];
+						// FIXME: replace this with proper signing
+						m = new Adb.Message("AUTH", AUTH_SIGNATURE, 0, '\0');
+						return m.send_receive(adb).then(do_auth_token);
+					}
+
+					let seq;
+
+					if (Adb.Opt.keys.length > 0) {
+						seq = Promise.resolve(Adb.Opt.keys[0]);
+					} else {
+						console.log("generating key (" + Adb.Opt.key_size + " bits)...");
+
+						seq = crypto.subtle.generateKey({
+								name: "RSA-OAEP",
+								modulusLength: Adb.Opt.key_size,
+								publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+								hash: { name: "SHA-256" }
+							}, false, [ "encrypt", "decrypt" ])
+							.then(key => Adb.Opt.keys[0] = key);
+					}
+
+					return seq.then(key => crypto.subtle.exportKey("spki", key.publicKey))
+						.then(pubkey => {
+							let s = new Uint8Array(pubkey).reduce((s,b) => s + String.fromCharCode(b), "");
+							m = new Adb.Message("AUTH", AUTH_RSAPUBLICKEY, 0, btoa(s) + "\0");
+							return m.send_receive(adb);
+						});
+				})
 				.then(response => {
 					if (response.cmd != "CNXN")
 						throw new Error("Failed to connect with '" + banner + "'");
@@ -110,7 +156,7 @@ var Adb = {};
 
 	Adb.WebUSB.Transport.prototype.connectFastboot = function() {
 		return this.getDevice({ classCode: 255, subclassCode: 66, protocolCode: 3 })
-			.then(() => new Fastboot.WebUSB.Device(this))
+			.then(match => new Fastboot.WebUSB.Device(this, match))
 			.then(fastboot => fastboot.send("getvar:max-download-size")
 				.then(() => fastboot.receive()
 					.then(response => {
@@ -126,9 +172,12 @@ var Adb = {};
 			);
 	};
 
-	Adb.WebUSB.Device = function(transport) {
+	Adb.WebUSB.Device = function(transport, match) {
 		this.transport = transport;
 		this.max_payload = 4096;
+
+		this.ep_out = match.alt.endpoints[0].endpointNumber;
+		this.ep_in = match.alt.endpoints[1].endpointNumber;
 	}
 
 	Adb.WebUSB.Device.prototype.open = function(service) {
@@ -143,7 +192,7 @@ var Adb = {};
 		return Adb.Stream.open(this, "reboot:" + command);
 	};
 
-	Adb.WebUSB.Device.prototype.send = function(ep, data) {
+	Adb.WebUSB.Device.prototype.send = function(data) {
 		if (typeof data === "string") {
 			let encoder = new TextEncoder();
 			let string_data = data;
@@ -153,19 +202,22 @@ var Adb = {};
 		if (data != null && data.length > this.max_payload)
 			throw new Error("data is too big: " + data.length + " bytes (max: " + this.max_payload + " bytes)");
 
-		return this.transport.send(ep, data);
+		return this.transport.send(this.ep_out, data);
 	};
 
-	Adb.WebUSB.Device.prototype.receive = function(ep, len) {
-		return this.transport.receive(ep, len);
+	Adb.WebUSB.Device.prototype.receive = function(len) {
+		return this.transport.receive(this.ep_in, len);
 	};
 
 	let Fastboot = {};
 	Fastboot.WebUSB = {};
 
-	Fastboot.WebUSB.Device = function(transport) {
+	Fastboot.WebUSB.Device = function(transport, match) {
 		this.transport = transport;
 		this.max_datasize = 64;
+
+		this.ep_out = match.alt.endpoints[0].endpointNumber;
+		this.ep_in = match.alt.endpoints[1].endpointNumber;
 	};
 	
 	Fastboot.WebUSB.Device.prototype.send = function(data) {
@@ -178,11 +230,11 @@ var Adb = {};
 		if (data != null && data.length > this.max_datasize)
 			throw new Error("data is too big: " + data.length + " bytes (max: " + this.max_datasize + " bytes)");
 
-		return this.transport.send(1, data);
+		return this.transport.send(this.ep_out, data);
 	};
 
 	Fastboot.WebUSB.Device.prototype.receive = function() {
-		return this.transport.receive(1, 64);
+		return this.transport.receive(this.ep_in, 64);
 	};
 
 	Adb.Message = function(cmd, arg0, arg1, data = null) {
@@ -215,10 +267,17 @@ var Adb = {};
 		if (Adb.Opt.debug)
 			console.log(message);
 
-		if (message.data != null && message.data != "") {
-			data = new TextEncoder().encode(message.data);
-			len = data.length;
-			data = data.buffer
+		if (message.data != null) {
+			if (typeof message.data === "string") {
+				let encoder = new TextEncoder();
+				data = encoder.encode(message.data).buffer;
+			} else if (ArrayBuffer.isView(message.data)) {
+				data = message.data.buffer;
+			} else {
+				data = message.data;
+			}
+
+			len = data.byteLength;
 			checksum = Adb.Message.checksum(new DataView(data));
 
 			if (len > device.max_payload)
@@ -233,14 +292,14 @@ var Adb = {};
 		view.setUint32(16, checksum, true);
 		view.setUint32(20, magic, true);
 
-		let seq = device.send(1, header);
+		let seq = device.send(header);
 		if (len > 0)
-			seq.then(() => device.send(1, data));
+			seq.then(() => device.send(data));
 		return seq;
 	};
 
 	Adb.Message.receive = function(device) {
-		return device.receive(1, 24)
+		return device.receive(24)
 			.then(response => {
 				let cmd = response.getUint32(0, true);
 				let arg0 = response.getUint32(4, true);
@@ -261,7 +320,7 @@ var Adb = {};
 					return message;
 				}
 
-				return device.receive(1, len)
+				return device.receive(len)
 					.then(data => {
 						if (Adb.Message.checksum(data) != check)
 							throw new Error("checksum mismatch");
@@ -298,7 +357,10 @@ var Adb = {};
 
 		let m = new Adb.Message("OPEN", local_id, remote_id, "" + service + "\0");
 		return m.send_receive(device)
-			.then(response => {
+			.then(function do_response(response) {
+				if (response.arg1 != local_id)
+					return Adb.Message.receive(device).then(do_response);
+
 				if (response.cmd != "OKAY")
 					throw new Error("Open failed");
 
