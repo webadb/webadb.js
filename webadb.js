@@ -8,7 +8,10 @@ var Adb = {};
 	Adb.Opt.dump = false;
 
 	Adb.Opt.key_size = 2048;
-	Adb.Opt.keys = [];
+	Adb.Opt.reuse_key = -1;
+
+	let db = init_db();
+	let keys = db.then(load_keys);
 
 	Adb.open = function(transport) {
 		if (transport == "WebUSB")
@@ -97,50 +100,17 @@ var Adb = {};
 
 		let key_idx = 0;
 		let AUTH_TOKEN = 1;
-		let AUTH_SIGNATURE = 2;
-		let AUTH_RSAPUBLICKEY = 3;
 
 		let m = new Adb.Message("CNXN", VERSION, MAX_PAYLOAD, "" + banner + "\0");
 		return this.getDevice({ classCode: 255, subclassCode: 66, protocolCode: 1 })
 			.then(match => new Adb.WebUSB.Device(this, match))
 			.then(adb => m.send_receive(adb)
-				.then(function do_auth_token(response) {
-					if (response.cmd != "AUTH")
+				.then((function do_auth_response(response) {
+					if (response.cmd != "AUTH" || response.arg0 != AUTH_TOKEN)
 						return response;
 
-					if (response.arg0 != AUTH_TOKEN)
-						throw new Error("Failed to connect with '" + banner + "', invalid AUTH response: " + response.arg0);
-
-					if (key_idx < Adb.Opt.keys.length) {
-						let key = Adb.Opt.keys[key_idx++];
-						// FIXME: replace this with proper signing
-						m = new Adb.Message("AUTH", AUTH_SIGNATURE, 0, '\0');
-						return m.send_receive(adb).then(do_auth_token);
-					}
-
-					let seq;
-
-					if (Adb.Opt.keys.length > 0) {
-						seq = Promise.resolve(Adb.Opt.keys[0]);
-					} else {
-						console.log("generating key (" + Adb.Opt.key_size + " bits)...");
-
-						seq = crypto.subtle.generateKey({
-								name: "RSA-OAEP",
-								modulusLength: Adb.Opt.key_size,
-								publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-								hash: { name: "SHA-256" }
-							}, false, [ "encrypt", "decrypt" ])
-							.then(key => Adb.Opt.keys[0] = key);
-					}
-
-					return seq.then(key => crypto.subtle.exportKey("spki", key.publicKey))
-						.then(pubkey => {
-							let s = new Uint8Array(pubkey).reduce((s,b) => s + String.fromCharCode(b), "");
-							m = new Adb.Message("AUTH", AUTH_RSAPUBLICKEY, 0, btoa(s) + "\0");
-							return m.send_receive(adb);
-						});
-				})
+					return keys.then(keys => do_auth(adb, keys, key_idx++, response.data.buffer, do_auth_response));
+				}))
 				.then(response => {
 					if (response.cmd != "CNXN")
 						throw new Error("Failed to connect with '" + banner + "'");
@@ -188,6 +158,10 @@ var Adb = {};
 		return Adb.Stream.open(this, "shell:" + command);
 	};
 
+	Adb.WebUSB.Device.prototype.sync = function() {
+		return Adb.Stream.open(this, "sync:");
+	};
+
 	Adb.WebUSB.Device.prototype.reboot = function(command="") {
 		return Adb.Stream.open(this, "reboot:" + command);
 	};
@@ -208,7 +182,6 @@ var Adb = {};
 	Adb.WebUSB.Device.prototype.receive = function(len) {
 		return this.transport.receive(this.ep_in, len);
 	};
-
 	let Fastboot = {};
 	Fastboot.WebUSB = {};
 
@@ -244,6 +217,7 @@ var Adb = {};
 		this.cmd = cmd;
 		this.arg0 = arg0;
 		this.arg1 = arg1;
+		this.length = (data === null) ? 0 : (typeof data === "string") ? data.length : data.byteLength;
 		this.data = data;
 	};
 
@@ -342,10 +316,106 @@ var Adb = {};
 			.then(() => Adb.Message.receive(device));
 	};
 
+	Adb.SyncFrame = function(cmd, length = 0, data = null) {
+		if (cmd.length != 4)
+			throw new Error("Invalid command: '" + cmd + "'");
+
+		this.cmd = cmd;
+		this.length = length;
+		this.data = data;
+	};
+
+	Adb.SyncFrame.send = function(stream, frame) {
+		let data = new ArrayBuffer(8);
+		let cmd = encode_cmd(frame.cmd);
+
+		if (Adb.Opt.debug)
+			console.log(frame);
+
+		let view = new DataView(data);
+		view.setUint32(0, cmd, true);
+		view.setUint32(4, frame.length, true);
+
+		return stream.send("WRTE", data);
+	};
+
+	Adb.SyncFrame.receive = function(stream) {
+		return stream.receive()
+			.then(response => {
+				if (response.cmd == "WRTE") {
+					let cmd = response.data.getUint32(0, true);
+					let len = response.data.getUint32(4, true);
+					let data = response.data.byteLength > 8 ? new DataView(response.data.buffer, 8) : null;
+
+					cmd = decode_cmd(cmd);
+
+					if (cmd == "OKAY" || cmd == "DATA" || cmd == "DONE" || cmd == "FAIL") {
+						if (len == 0 || (data != null && data.byteLength > len)) {
+							let frame = new Adb.SyncFrame(cmd, len, data);
+							if (Adb.Opt.debug)
+								console.log(frame);
+							return frame;
+						}
+
+						return stream.send("OKAY")
+							.then(() => stream.receive())
+							.then(response => {
+								let cmd2 = response.data.getUint32(0, true);
+								let len2 = response.data.getUint32(4, true);
+								let data2 = response.data.byteLength > 8 ? new DataView(response.data.buffer, 8) : null;
+
+								if (cmd2 == "OKAY" || cmd2 == "DATA" || cmd2 == "DONE" || cmd2 == "FAIL") {
+									if (len2 == 0 || (data2 != null && data2.byteLength > len2)) {
+										let frame = new Adb.SyncFrame(cmd2, len2, data2);
+										if (Adb.Opt.debug)
+											console.log(frame);
+										return frame;
+									}
+								}
+
+								if (response.data.byteLength < len)
+									throw new Error("expected at least " + len + ", got " + response.data.byteLength);
+
+								let frame = new Adb.SyncFrame(cmd, len, response.data);
+								if (Adb.Opt.debug)
+									console.log(frame);
+								return frame;
+							});
+					}
+
+					if (Adb.Opt.debug)
+						console.log(response);
+
+					throw new Error("invalid WRTE frame");
+				}
+
+				if (response.cmd == "OKAY") {
+					let frame = new Adb.SyncFrame("OKAY");
+					if (Adb.Opt.debug)
+						console.log(frame);
+					return frame;
+				}
+
+				if (Adb.Opt.debug)
+					console.log(response);
+
+				throw new Error("invalid SYNC frame");
+			});
+	};
+
+	Adb.SyncFrame.prototype.send = function(stream) {
+		return Adb.SyncFrame.send(stream, this);
+	};
+
+	Adb.SyncFrame.prototype.send_receive = function(stream) {
+		return Adb.SyncFrame.send(stream, this)
+			.then(() => Adb.SyncFrame.receive(stream));
+	};
+
 	Adb.Stream = function(device, service, local_id, remote_id) {
 		this.device = device;
 		this.service = service;
-		this.local_id = local_id
+		this.local_id = local_id;
 		this.remote_id = remote_id;
 	};
 
@@ -409,6 +479,179 @@ var Adb = {};
 			});
 	};
 
+	Adb.Stream.prototype.send_receive = function(cmd, data=null) {
+		return this.send(cmd, data)
+			.then(() => this.receive());
+	};
+
+	Adb.Stream.prototype.stat = function(filename) {
+		let frame = new Adb.SyncFrame("STAT", filename.length);
+		return frame.send_receive(this)
+			.then(check_ok("STAT failed on " + filename))
+			.then(response => {
+				let encoder = new TextEncoder();
+				return this.send_receive("WRTE", encoder.encode(filename))
+			})
+			.then(check_ok("STAT failed on " + filename))
+			.then(response => {
+				return this.receive().then(response =>
+					this.send("OKAY").then(() =>
+					response.data));
+			})
+			.then(response => {
+				let id = decode_cmd(response.getUint32(0, true));
+				let mode = response.getUint32(4, true);
+				let size = response.getUint32(8, true);
+				let time = response.getUint32(12, true);
+
+				if (Adb.Opt.debug) {
+					console.log("STAT: " + filename);
+					console.log("id: " + id);
+					console.log("mode: " + mode);
+					console.log("size: " + size);
+					console.log("time: " + time);
+				}
+
+				if (id != "STAT")
+					throw new Error("STAT failed on " + filename);
+
+				return { mode: mode, size: size, time: time };
+			});
+	};
+
+	Adb.Stream.prototype.pull = function(filename) {
+		let frame = new Adb.SyncFrame("RECV", filename.length);
+		return frame.send_receive(this)
+			.then(check_ok("PULL RECV failed on " + filename))
+			.then(response => {
+				let encoder = new TextEncoder();
+				return this.send_receive("WRTE", encoder.encode(filename))
+			})
+			.then(check_ok("PULL WRTE failed on " + filename))
+			.then(() => Adb.SyncFrame.receive(this))
+			.then(check_fail)
+			.then(check_cmd("DATA", "PULL DATA failed on " + filename))
+			.catch(err => {
+				return this.send("OKAY")
+					.then(() => { throw err; });
+			})
+			.then(response => {
+				return this.send("OKAY")
+					.then(() => response);
+			})
+			.then(response => {
+				let len = response.length;
+				if (response.data.byteLength == len + 8) {
+					let cmd = response.data.getUint32(len, true);
+					let zero = response.data.getUint32(len + 4, true);
+					if (decode_cmd(cmd) != "DONE" || zero != 0)
+						throw new Error("PULL DONE failed on " + filename);
+
+					return new DataView(response.data.buffer, 0, len);
+				}
+
+				if (response.data.byteLength != len)
+					throw new Error("PULL DATA failed on " + filename + ": " + response.data.byteLength + "!=" + len);
+
+				return this.receive()
+					.then(response => {
+						let cmd = response.data.getUint32(0, true);
+						let zero = response.data.getUint32(4, true);
+						if (decode_cmd(cmd) != "DONE" || zero != 0)
+							throw new Error("PULL DONE failed on " + filename);
+					})
+					.then(() => this.send("OKAY"))
+					.then(() => response.data);
+			});
+	};
+
+	Adb.Stream.prototype.push_start = function(filename, mode) {
+		let mode_str = mode.toString(10);
+		let encoder = new TextEncoder();
+
+		let frame = new Adb.SyncFrame("SEND", filename.length + 1 + mode_str.length);
+		return frame.send_receive(this)
+			.then(check_ok("PUSH failed on " + filename))
+			.then(response => {
+				return this.send("WRTE", encoder.encode(filename))
+			})
+			.then(() => Adb.SyncFrame.receive(this))
+			.then(check_ok("PUSH failed on " + filename))
+			.then(response => {
+				return this.send("WRTE", encoder.encode("," + mode_str))
+			})
+			.then(() => Adb.SyncFrame.receive(this))
+			.then(check_ok("PUSH failed on " + filename));
+	};
+
+	Adb.Stream.prototype.push_data = function(data) {
+		if (typeof data === "string") {
+			let encoder = new TextEncoder();
+			let string_data = data;
+			data = encoder.encode(string_data).buffer;
+		} else if (ArrayBuffer.isView(data)) {
+			data = data.buffer;
+		}
+
+		let frame = new Adb.SyncFrame("DATA", data.byteLength);
+		return frame.send_receive(this)
+			.then(check_ok("PUSH failed"))
+			.then(response => {
+				return this.send("WRTE", data);
+			})
+			.then(() => Adb.SyncFrame.receive(this))
+			.then(check_ok("PUSH failed"));
+	};
+
+	Adb.Stream.prototype.push_done = function() {
+		let frame = new Adb.SyncFrame("DONE", Date.now() / 1000);
+		return frame.send_receive(this)
+			.then(check_ok("PUSH failed"))
+			.then(response => {
+				return Adb.SyncFrame.receive(this);
+			})
+			.then(check_ok("PUSH failed"))
+			.then(response => {
+				return this.send("OKAY");
+			});
+	};
+
+	Adb.Stream.prototype.quit = function() {
+		let frame = new Adb.SyncFrame("QUIT");
+		return frame.send_receive(this)
+			.then(check_ok("QUIT failed"))
+			.then(response => {
+				return this.receive();
+			})
+			.then(check_cmd("CLSE", "QUIT failed"))
+			.then(response => {
+				return this.close();
+			});
+	};
+
+	function check_cmd(cmd, err_msg)
+	{
+		return function(response) {
+			if (response.cmd != cmd)
+				throw new Error(err_msg);
+			return response;
+		};
+	}
+
+	function check_ok(err_msg)
+	{
+		return check_cmd("OKAY", err_msg);
+	}
+
+	function check_fail(response)
+	{
+		if (response.cmd == "FAIL") {
+			let decoder = new TextDecoder();
+			throw new Error(decoder.decode(response.data));
+		}
+		return response;
+	}
+
 	function paddit(text, width, padding)
 	{
 		let padlen = width - text.length;
@@ -433,6 +676,11 @@ var Adb = {};
 	function toHex32(num)
 	{
 		return paddit(num.toString(16), 8, "0");
+	}
+
+	function toB64(buffer)
+	{
+		return btoa(new Uint8Array(buffer).reduce((s, b) => s + String.fromCharCode(b), ""));
 	}
 
 	function hexdump(view, prefix="")
@@ -469,5 +717,193 @@ var Adb = {};
 		let view = new DataView(buffer);
 		view.setUint32(0, cmd, true);
 		return decoder.decode(buffer);
+	}
+
+	function generate_key()
+	{
+		let extractable = Adb.Opt.dump;
+
+		return crypto.subtle.generateKey({
+					name: "RSASSA-PKCS1-v1_5",
+					modulusLength: Adb.Opt.key_size,
+					publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+					hash: { name: "SHA-1" }
+				}, extractable, [ "sign", "verify" ])
+			.then(key => {
+				if (!Adb.Opt.dump)
+					return key;
+
+				return privkey_dump(key)
+					.then(() => pubkey_dump(key))
+					.then(() => key);
+			});
+	}
+
+	function do_auth(adb, keys, key_idx, token, do_auth_response)
+	{
+		let AUTH_SIGNATURE = 2;
+		let AUTH_RSAPUBLICKEY = 3;
+
+		if (key_idx < keys.length) {
+			let slot = keys.length - key_idx - 1;
+			let key = keys[slot];
+			let seq = Promise.resolve();
+
+			if (Adb.Opt.debug)
+				console.log("signing with key " + slot + "...");
+			if (Adb.Opt.dump) {
+				seq = seq.then(() => privkey_dump(key))
+					.then(() => pubkey_dump(key))
+					.then(() => hexdump(new DataView(token)))
+					.then(() => console.log("-----BEGIN TOKEN-----\n" + toB64(token) + "\n-----END TOKEN-----"));
+			}
+
+			return seq.then(() => crypto.subtle.sign({ name: "RSASSA-PKCS1-v1_5" }, key.privateKey, token))
+				.then(signed => {
+					if (Adb.Opt.dump)
+						console.log("-----BEGIN SIGNATURE-----\n" + toB64(signed) + "\n-----END SIGNATURE-----");
+
+					let m = new Adb.Message("AUTH", AUTH_SIGNATURE, 0, signed);
+					return m.send_receive(adb).then(do_auth_response);
+				});
+		}
+
+		let seq = null;
+		let dirty = false;
+
+		if (Adb.Opt.reuse_key !== false) {
+			key_idx = Adb.Opt.reuse_key === true ? -1 : Adb.Opt.reuse_key;
+
+			if (key_idx < 0)
+				key_idx += keys.length;
+
+			if (key_idx >= 0 && key_idx < keys.length) {
+				if (Adb.Opt.debug)
+					console.log("reusing key " + key_idx + "...");
+				seq = Promise.resolve(keys[key_idx]);
+			}
+		}
+
+		if (seq === null) {
+			if (Adb.Opt.debug)
+				console.log("generating key " + key_idx + " (" + Adb.Opt.key_size + " bits)...");
+
+			seq = generate_key();
+			dirty = true;
+		}
+
+		return seq.then(key => {
+			return crypto.subtle.exportKey("spki", key.publicKey)
+				.then(pubkey => {
+					let m = new Adb.Message("AUTH", AUTH_RSAPUBLICKEY, 0, toB64(pubkey) + "\0");
+					return m.send(adb);
+				})
+				.then(() => {
+					if (Adb.Opt.debug)
+						console.log("waiting for user confirmation...");
+					return Adb.Message.receive(adb);
+				})
+				.then(response => {
+					if (response.cmd != "CNXN")
+						return response;
+					if (!dirty)
+						return response;
+
+					keys.push(key);
+					return db.then(db => store_key(db, key))
+						.then(() => response);
+				});
+		});
+	}
+
+	function privkey_dump(key)
+	{
+		return crypto.subtle.exportKey("pkcs8", key.privateKey)
+			.then(privkey => console.log("-----BEGIN PRIVATE KEY-----\n" + toB64(privkey) + "\n-----END PRIVATE KEY-----"));
+	}
+
+	function pubkey_dump(key)
+	{
+		return crypto.subtle.exportKey("spki", key.publicKey)
+			.then(pubkey => console.log("-----BEGIN PUBLIC KEY-----\n" + toB64(pubkey) + "\n-----END PUBLIC KEY-----"));
+	}
+
+	function promisify(request, onsuccess = "onsuccess", onerror = "onerror")
+	{
+		return new Promise(function (resolve, reject) {
+			request[onsuccess] = event => resolve(event.target.result);
+			request[onerror] = event => reject(event.target.errorCode);
+		});
+	}
+
+	function init_db()
+	{
+		let req = window.indexedDB.open("WebADB", 1);
+
+		req.onupgradeneeded = function (event) {
+			let db = event.target.result;
+
+			if (Adb.Opt.debug)
+				console.log("DB: migrating from version " + event.oldVersion + " to " + event.newVersion + "...");
+
+			if (db.objectStoreNames.contains('keys')) {
+				if (Adb.Opt.debug)
+					console.log("DB: deleting old keys...");
+
+				db.deleteObjectStore('keys');
+			}
+
+			db.createObjectStore("keys", { autoIncrement: true });
+		};
+
+		return promisify(req);
+	}
+
+	function load_keys(db)
+	{
+		let transaction = db.transaction("keys");
+		let store = transaction.objectStore("keys");
+		let cursor = store.openCursor();
+		let keys = [];
+
+		cursor.onsuccess = function (event) {
+			let result = event.target.result;
+			if (result != null) {
+				keys.push(result.value);
+				result.continue();
+			}
+		};
+
+		return promisify(transaction, "oncomplete").then(function (result) {
+			if (Adb.Opt.debug)
+				console.log("DB: loaded " + keys.length + " keys");
+			return keys;
+		});
+	}
+
+	function store_key(db, key)
+	{
+		let transaction = db.transaction("keys", "readwrite");
+		let store = transaction.objectStore('keys');
+		let request = store.put(key);
+
+		return promisify(request).then(function (result) {
+			if (Adb.Opt.debug)
+				console.log("DB: stored key " + (result - 1));
+			return result;
+		});
+	}
+
+	function clear_keys(db)
+	{
+		let transaction = db.transaction("keys", "readwrite");
+		let store = transaction.objectStore("keys");
+		let request = store.clear();
+
+		return promisify(request).then(function (result) {
+			if (Adb.Opt.debug)
+				console.log("DB: removed all the keys");
+			return result;
+		});
 	}
 })();
