@@ -182,6 +182,7 @@ var Adb = {};
 	Adb.WebUSB.Device.prototype.receive = function(len) {
 		return this.transport.receive(this.ep_in, len);
 	};
+
 	let Fastboot = {};
 	Fastboot.WebUSB = {};
 
@@ -343,14 +344,13 @@ var Adb = {};
 		return stream.receive()
 			.then(response => {
 				if (response.cmd == "WRTE") {
-					let cmd = response.data.getUint32(0, true);
-					let len = response.data.getUint32(4, true);
-					let data = response.data.byteLength > 8 ? new DataView(response.data.buffer, 8) : null;
-
-					cmd = decode_cmd(cmd);
+					let cmd = decode_cmd(response.data.getUint32(0, true));
 
 					if (cmd == "OKAY" || cmd == "DATA" || cmd == "DONE" || cmd == "FAIL") {
-						if (len == 0 || (data != null && data.byteLength > len)) {
+						let len = response.data.getUint32(4, true);
+						let data = new DataView(response.data.buffer.slice(8));
+
+						if (len == 0 || data.byteLength >= len) {
 							let frame = new Adb.SyncFrame(cmd, len, data);
 							if (Adb.Opt.debug)
 								console.log(frame);
@@ -360,13 +360,14 @@ var Adb = {};
 						return stream.send("OKAY")
 							.then(() => stream.receive())
 							.then(response => {
-								let cmd2 = response.data.getUint32(0, true);
-								let len2 = response.data.getUint32(4, true);
-								let data2 = response.data.byteLength > 8 ? new DataView(response.data.buffer, 8) : null;
+								let cmd2 = decode_cmd(response.data.getUint32(0, true));
 
 								if (cmd2 == "OKAY" || cmd2 == "DATA" || cmd2 == "DONE" || cmd2 == "FAIL") {
-									if (len2 == 0 || (data2 != null && data2.byteLength > len2)) {
-										let frame = new Adb.SyncFrame(cmd2, len2, data2);
+									let len = response.data.getUint32(4, true);
+									let data = new DataView(response.data.buffer.slice(8));
+
+									if (len == 0 || data.byteLength >= len) {
+										let frame = new Adb.SyncFrame(cmd2, len, data);
 										if (Adb.Opt.debug)
 											console.log(frame);
 										return frame;
@@ -385,6 +386,8 @@ var Adb = {};
 
 					if (Adb.Opt.debug)
 						console.log(response);
+					if (Adb.Opt.dump)
+						hexdump(response.data, "WRTE: ");
 
 					throw new Error("invalid WRTE frame");
 				}
