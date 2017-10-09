@@ -94,7 +94,7 @@ var Adb = {};
 			.then(() => match);
 	};
 
-	Adb.WebUSB.Transport.prototype.connectAdb = function(banner) {
+	Adb.WebUSB.Transport.prototype.connectAdb = function(banner, auth_user_notify = null) {
 		let VERSION = 0x01000000;
 		let MAX_PAYLOAD = 256 * 1024;
 
@@ -109,7 +109,8 @@ var Adb = {};
 					if (response.cmd != "AUTH" || response.arg0 != AUTH_TOKEN)
 						return response;
 
-					return keys.then(keys => do_auth(adb, keys, key_idx++, response.data.buffer, do_auth_response));
+					return keys.then(keys =>
+						do_auth(adb, keys, key_idx++, response.data.buffer, do_auth_response, auth_user_notify));
 				}))
 				.then(response => {
 					if (response.cmd != "CNXN")
@@ -742,7 +743,7 @@ var Adb = {};
 			});
 	}
 
-	function do_auth(adb, keys, key_idx, token, do_auth_response)
+	function do_auth(adb, keys, key_idx, token, do_auth_response, auth_user_notify)
 	{
 		let AUTH_SIGNATURE = 2;
 		let AUTH_RSAPUBLICKEY = 3;
@@ -804,6 +805,8 @@ var Adb = {};
 				.then(() => {
 					if (Adb.Opt.debug)
 						console.log("waiting for user confirmation...");
+					if (auth_user_notify != null)
+						auth_user_notify(key.publicKey);
 					return Adb.Message.receive(adb);
 				})
 				.then(response => {
