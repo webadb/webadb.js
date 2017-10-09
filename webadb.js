@@ -821,12 +821,22 @@ var Adb = {};
 
 	function privkey_dump(key)
 	{
+		if (!key.privateKey.extractable) {
+			console.log("cannot dump the private key, it's not extractable");
+			return;
+		}
+
 		return crypto.subtle.exportKey("pkcs8", key.privateKey)
 			.then(privkey => console.log("-----BEGIN PRIVATE KEY-----\n" + toB64(privkey) + "\n-----END PRIVATE KEY-----"));
 	}
 
 	function pubkey_dump(key)
 	{
+		if (!key.publicKey.extractable) {
+			console.log("cannot dump the public key, it's not extractable");
+			return;
+		}
+
 		return crypto.subtle.exportKey("spki", key.publicKey)
 			.then(pubkey => console.log("-----BEGIN PUBLIC KEY-----\n" + toB64(pubkey) + "\n-----END PUBLIC KEY-----"));
 	}
