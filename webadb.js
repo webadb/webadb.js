@@ -361,6 +361,13 @@ var Adb = {};
 						return stream.send("OKAY")
 							.then(() => stream.receive())
 							.then(response => {
+								if (response.data == null) {
+									let frame = new Adb.SyncFrame(cmd);
+									if (Adb.Opt.debug)
+										console.log(frame);
+									return frame;
+								}
+
 								let cmd2 = decode_cmd(response.data.getUint32(0, true));
 
 								if (cmd2 == "OKAY" || cmd2 == "DATA" || cmd2 == "DONE" || cmd2 == "FAIL") {
