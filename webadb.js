@@ -627,6 +627,35 @@ var Adb = {};
 			});
 	};
 
+	Adb.Stream.prototype.push = function(file, filename, mode, on_progress = null) {
+		// read the whole file
+		let seq = new Promise(function(resolve, reject) {
+			let reader = new FileReader();
+			reader.onload = e => resolve(e.target.result);
+			reader.onerror = e => reject(e.target.error);
+			reader.readAsArrayBuffer(file);
+		});
+
+		return seq.then(data =>
+			this.push_start(filename, mode).then(() => {
+				let seq = Promise.resolve();
+				let rem = file.size;
+				let max = Math.min(0x10000, this.device.max_payload);
+				while (rem > 0) {
+					// these two are needed here for the closure
+					let len = Math.min(rem, max);
+					let count = file.size - rem;
+					seq = seq.then(() => {
+						if (on_progress != null)
+							on_progress(count, file.size);
+						return this.push_data(data.slice(count, count + len));
+					});
+					rem -= len;
+				}
+				return seq.then(() => this.push_done());
+			}));
+	};
+
 	Adb.Stream.prototype.quit = function() {
 		let frame = new Adb.SyncFrame("QUIT");
 		return frame.send_receive(this)
