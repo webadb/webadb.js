@@ -615,7 +615,7 @@ var Adb = {};
 	};
 
 	Adb.Stream.prototype.push_done = function() {
-		let frame = new Adb.SyncFrame("DONE", Date.now() / 1000);
+		let frame = new Adb.SyncFrame("DONE", Math.round(Date.now() / 1000));
 		return frame.send_receive(this)
 			.then(check_ok("PUSH failed"))
 			.then(response => {
