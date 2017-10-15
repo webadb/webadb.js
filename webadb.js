@@ -652,6 +652,12 @@ var Adb = {};
 			reader.readAsArrayBuffer(file);
 		});
 
+		// we need reduced logging during the data transfer otherwise the console may explode
+		let old_debug = Adb.Opt.debug;
+		let old_dump = Adb.Opt.dump;
+		Adb.Opt.debug = false;
+		Adb.Opt.dump = false;
+
 		return seq.then(data =>
 			this.push_start(filename, mode).then(() => {
 				let seq = Promise.resolve();
@@ -663,6 +669,8 @@ var Adb = {};
 					let count = file.size - rem;
 					seq = seq.then(() => {
 						if (this.cancel) {
+							Adb.Opt.debug = old_debug;
+							Adb.Opt.dump = old_dump;
 							this.cancel();
 							throw new Error("cancelled");
 						}
@@ -672,7 +680,11 @@ var Adb = {};
 					});
 					rem -= len;
 				}
-				return seq.then(() => this.push_done());
+				return seq.then(() => {
+					Adb.Opt.debug = old_debug;
+					Adb.Opt.dump = old_dump;
+					return this.push_done();
+				});
 			}));
 	};
 
