@@ -428,6 +428,7 @@ var Adb = {};
 		this.service = service;
 		this.local_id = local_id;
 		this.remote_id = remote_id;
+		this.cancel = null;
 	};
 
 	let next_id = 1;
@@ -493,6 +494,21 @@ var Adb = {};
 	Adb.Stream.prototype.send_receive = function(cmd, data=null) {
 		return this.send(cmd, data)
 			.then(() => this.receive());
+	};
+
+	Adb.Stream.prototype.abort = function() {
+		if (Adb.Opt.debug)
+			console.log("aborting...");
+
+		let self = this;
+		return new Promise(function(resolve, reject) {
+			self.cancel = function() {
+				if (Adb.Opt.debug)
+					console.log("aborted");
+				self.cancel = null;
+				resolve();
+			};
+		});
 	};
 
 	Adb.Stream.prototype.stat = function(filename) {
@@ -646,6 +662,10 @@ var Adb = {};
 					let len = Math.min(rem, max);
 					let count = file.size - rem;
 					seq = seq.then(() => {
+						if (this.cancel) {
+							this.cancel();
+							throw new Error("cancelled");
+						}
 						if (on_progress != null)
 							on_progress(count, file.size);
 						return this.push_data(data.slice(count, count + len));
