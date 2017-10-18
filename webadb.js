@@ -40,6 +40,10 @@ var Adb = {};
 				.then(() => new Adb.WebUSB.Transport(device)));
 	};
 
+	Adb.WebUSB.Transport.prototype.close = function() {
+		this.device.close();
+	};
+
 	Adb.WebUSB.Transport.prototype.send = function(ep, data) {
 		if (Adb.Opt.dump)
 			hexdump(new DataView(data), "" + ep + "==> ");
