@@ -647,21 +647,14 @@ var Adb = {};
 	};
 
 	Adb.Stream.prototype.push = function(file, filename, mode, on_progress = null) {
-		// read the whole file
-		let seq = new Promise(function(resolve, reject) {
-			let reader = new FileReader();
-			reader.onload = e => resolve(e.target.result);
-			reader.onerror = e => reject(e.target.error);
-			reader.readAsArrayBuffer(file);
-		});
-
 		// we need reduced logging during the data transfer otherwise the console may explode
 		let old_debug = Adb.Opt.debug;
 		let old_dump = Adb.Opt.dump;
 		Adb.Opt.debug = false;
 		Adb.Opt.dump = false;
 
-		return seq.then(data =>
+		// read the whole file
+		return read_blob(file).then(data =>
 			this.push_start(filename, mode).then(() => {
 				let seq = Promise.resolve();
 				let rem = file.size;
@@ -908,6 +901,16 @@ var Adb = {};
 
 		return crypto.subtle.exportKey("spki", key.publicKey)
 			.then(pubkey => console.log("-----BEGIN PUBLIC KEY-----\n" + toB64(pubkey) + "\n-----END PUBLIC KEY-----"));
+	}
+
+	function read_blob(blob)
+	{
+		return new Promise(function(resolve, reject) {
+			let reader = new FileReader();
+			reader.onload = e => resolve(e.target.result);
+			reader.onerror = e => reject(e.target.error);
+			reader.readAsArrayBuffer(blob);
+		});
 	}
 
 	function promisify(request, onsuccess = "onsuccess", onerror = "onerror")
