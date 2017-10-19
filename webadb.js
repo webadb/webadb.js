@@ -560,7 +560,6 @@ var Adb = {};
 			})
 			.then(check_ok("PULL WRTE failed on " + filename))
 			.then(() => Adb.SyncFrame.receive(this))
-			.then(check_fail)
 			.then(check_cmd("DATA", "PULL DATA failed on " + filename))
 			.catch(err => {
 				return this.send("OKAY")
@@ -708,6 +707,10 @@ var Adb = {};
 	function check_cmd(cmd, err_msg)
 	{
 		return function(response) {
+			if (response.cmd == "FAIL") {
+				let decoder = new TextDecoder();
+				throw new Error(decoder.decode(response.data));
+			}
 			if (response.cmd != cmd)
 				throw new Error(err_msg);
 			return response;
@@ -717,15 +720,6 @@ var Adb = {};
 	function check_ok(err_msg)
 	{
 		return check_cmd("OKAY", err_msg);
-	}
-
-	function check_fail(response)
-	{
-		if (response.cmd == "FAIL") {
-			let decoder = new TextDecoder();
-			throw new Error(decoder.decode(response.data));
-		}
-		return response;
 	}
 
 	function paddit(text, width, padding)
