@@ -151,8 +151,8 @@ var Adb = {};
 		this.transport = transport;
 		this.max_payload = 4096;
 
-		this.ep_out = match.alt.endpoints[0].endpointNumber;
-		this.ep_in = match.alt.endpoints[1].endpointNumber;
+		this.ep_in = get_ep_num(match.alt.endpoints, "in");
+		this.ep_out = get_ep_num(match.alt.endpoints, "out");
 	}
 
 	Adb.WebUSB.Device.prototype.open = function(service) {
@@ -195,8 +195,8 @@ var Adb = {};
 		this.transport = transport;
 		this.max_datasize = 64;
 
-		this.ep_out = match.alt.endpoints[0].endpointNumber;
-		this.ep_in = match.alt.endpoints[1].endpointNumber;
+		this.ep_in = get_ep_num(match.alt.endpoints, "in");
+		this.ep_out = get_ep_num(match.alt.endpoints, "out");
 	};
 	
 	Fastboot.WebUSB.Device.prototype.send = function(data) {
@@ -763,6 +763,17 @@ var Adb = {};
 			row += " | " + decoder.decode(new DataView(view.buffer, i, max));
 			console.log(row);
 		}
+	}
+
+	function get_ep_num(endpoints, dir, type = "bulk")
+	{
+		let e, ep;
+		for (e in endpoints)
+			if (ep = endpoints[e], ep.direction == dir && ep.type == type)
+				return ep.endpointNumber;
+		if (Adb.Opt.debug)
+			console.log(endpoints);
+		throw new Error("Cannot find " + dir + " endpoint");
 	}
 
 	function encode_cmd(cmd)
