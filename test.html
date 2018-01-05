@@ -1,0 +1,56 @@
+<html>
+  <head>
+    <script src="./webadb.js"></script>
+    <script>
+      let adb;
+      let webusb;
+      
+      let init = async () => {
+        webusb = await Adb.open("WebUSB");
+      };
+
+      let connect = async () => {
+        if (webusb.isAdb()) {
+          try {
+            adb = null;
+            adb = await webusb.connectAdb("host::", () => {
+              console.log("Please check the screen of your " + webusb.device.productName + ".");
+            });
+          }
+          catch(error) {
+            console.error(error);
+            adb = null;
+          }
+        }
+      };
+
+      let disconnect = async () => {
+        webusb.close();
+      };
+
+      let pull = async (filename) => {
+        let sync = await adb.sync();
+        let content = await sync.pull(filename);
+        
+        await sync.quit();
+
+        return content;
+      };
+      
+      let test = async () => {
+        await init();
+        await connect();
+        let data = await pull('/sdcard/Movies/2018-01-04-21-17-20.mp4');
+        let a = document.createElement('a')
+        a.href = URL.createObjectURL(new Blob([data]));
+        a.download = "2018-01-04-21-17-20.mp4";
+        a.click();
+        await disconnect();
+      };
+          
+    </script>
+  </head>
+  <body>
+
+  </body>
+</html>
