@@ -589,12 +589,11 @@ var Adb = {};
 					return new DataView(response.data.buffer, 0, response.data.byteLength - 8);
 				}
 
-				//if (response.data.byteLength != len)
-				//  throw new Error("PULL DATA failed on " + filename + ": " + response.data.byteLength + "!=" + len);
+				if (response.data.byteLength != len)
+				  throw new Error("PULL DATA failed on " + filename + ": " + response.data.byteLength + "!=" + len);
 
 				return this.receive()
 					.then(response => {
-						debugger;
 						let cmd = response.data.getUint32(0, true);
 						let zero = response.data.getUint32(4, true);
 						if (decode_cmd(cmd) != "DONE" || zero != 0)
