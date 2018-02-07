@@ -582,8 +582,17 @@ var Adb = {};
 					return new DataView(response.data.buffer, 0, len);
 				}
 
+				if (response.data.byteLength > 64 * 1024) {
+					let cmd = response.data.getUint32(response.data.byteLength - 8, true);
+					let zero = response.data.getUint32(response.data.byteLength - 4, true);
+					if (decode_cmd(cmd) != "DONE" || zero != 0)
+						throw new Error("PULL DONE failed on " + filename);
+
+					return new DataView(response.data.buffer, 0, response.data.byteLength - 8);
+				}
+
 				if (response.data.byteLength != len)
-					throw new Error("PULL DATA failed on " + filename + ": " + response.data.byteLength + "!=" + len);
+				  throw new Error("PULL DATA failed on " + filename + ": " + response.data.byteLength + "!=" + len);
 
 				return this.receive()
 					.then(response => {
