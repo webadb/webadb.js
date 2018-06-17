@@ -12,6 +12,10 @@ var Adb = {};
 	Adb.Opt.key_size = 2048;
 	Adb.Opt.reuse_key = -1;
 
+	// Set this to false for new devices (post Dec 2017) if
+	// autodetection doesn't handle it automatically.
+	Adb.Opt.use_checksum = true;
+
 	let db = init_db();
 	let keys = db.then(load_keys);
 
@@ -102,12 +106,14 @@ var Adb = {};
 
 	Adb.WebUSB.Transport.prototype.connectAdb = function(banner, auth_user_notify = null) {
 		let VERSION = 0x01000000;
+		let VERSION_NO_CHECKSUM = 0x01000001;
 		let MAX_PAYLOAD = 256 * 1024;
 
 		let key_idx = 0;
 		let AUTH_TOKEN = 1;
 
-		let m = new Adb.Message("CNXN", VERSION, MAX_PAYLOAD, "" + banner + "\0");
+		let version_used = Adb.Opt.use_checksum ? VERSION : VERSION_NO_CHECKSUM;
+		let m = new Adb.Message("CNXN", version_used, MAX_PAYLOAD, "" + banner + "\0");
 		return this.getDevice({ classCode: 255, subclassCode: 66, protocolCode: 1 })
 			.then(match => new Adb.WebUSB.Device(this, match))
 			.then(adb => m.send_receive(adb)
@@ -121,11 +127,14 @@ var Adb = {};
 				.then(response => {
 					if (response.cmd != "CNXN")
 						throw new Error("Failed to connect with '" + banner + "'");
-					if (response.arg0 != VERSION)
-						throw new Error("Version mismatch: " + response.arg0 + " (expected: " + VERSION + ")");
+					console.log('version', response.arg0);
+					if (response.arg0 != VERSION && response.arg0 != VERSION_NO_CHECKSUM)
+						throw new Error("Version mismatch: " + response.arg0 + " (expected: " + VERSION + " or " + VERSION_NO_CHECKSUM + ")");
 					if (Adb.Opt.debug)
 						console.log("Connected with '" + banner + "', max_payload: " + response.arg1);
 					adb.max_payload = response.arg1;
+					if (response.arg0 == VERSION_NO_CHECKSUM)
+						Adb.Opt.use_checksum = false;
 					return adb;
 				})
 			);
@@ -163,6 +172,10 @@ var Adb = {};
 
 	Adb.WebUSB.Device.prototype.shell = function(command) {
 		return Adb.Stream.open(this, "shell:" + command);
+	};
+
+	Adb.WebUSB.Device.prototype.tcpip = function(port) {
+		return Adb.Stream.open(this, "tcpip:" + port);
 	};
 
 	Adb.WebUSB.Device.prototype.sync = function() {
@@ -260,7 +273,8 @@ var Adb = {};
 			}
 
 			len = data.byteLength;
-			checksum = Adb.Message.checksum(new DataView(data));
+			if (Adb.Opt.use_checksum)
+				checksum = Adb.Message.checksum(new DataView(data));
 
 			if (len > device.max_payload)
 				throw new Error("data is too big: " + len + " bytes (max: " + device.max_payload + " bytes)");
@@ -281,17 +295,20 @@ var Adb = {};
 	};
 
 	Adb.Message.receive = function(device) {
-		return device.receive(24)
+		return device.receive(24) //Adb.Opt.use_checksum ? 24 : 20)
 			.then(response => {
 				let cmd = response.getUint32(0, true);
 				let arg0 = response.getUint32(4, true);
 				let arg1 = response.getUint32(8, true);
 				let len = response.getUint32(12, true);
 				let check = response.getUint32(16, true);
-				let magic = response.getUint32(20, true);
+				// Android seems to have stopped providing checksums
+				if (Adb.use_checksum && response.byteLength > 20) {
+					let magic = response.getUint32(20, true);
 
-				if ((cmd ^ magic) != -1)
-					throw new Error("magic mismatch");
+					if ((cmd ^ magic) != -1)
+						throw new Error("magic mismatch");
+				}
 
 				cmd = decode_cmd(cmd);
 
@@ -304,7 +321,7 @@ var Adb = {};
 
 				return device.receive(len)
 					.then(data => {
-						if (Adb.Message.checksum(data) != check)
+						if (Adb.Opt.use_checksum && Adb.Message.checksum(data) != check)
 							throw new Error("checksum mismatch");
 
 						let message = new Adb.Message(cmd, arg0, arg1, data);
@@ -891,6 +908,7 @@ var Adb = {};
 					return Adb.Message.receive(adb);
 				})
 				.then(response => {
+					// return response;
 					if (response.cmd != "CNXN")
 						return response;
 					if (!dirty)
