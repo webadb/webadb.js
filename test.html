@@ -1,10 +1,10 @@
 <html>
   <head>
-    <script src="./webadb.js"></script>
+    <script src="js/webadb.js"></script>
     <script>
       let adb;
       let webusb;
-      
+
       let init = async () => {
         webusb = await Adb.open("WebUSB");
       };
@@ -31,12 +31,12 @@
       let pull = async (filename) => {
         let sync = await adb.sync();
         let content = await sync.pull(filename);
-        
+
         await sync.quit();
 
         return content;
       };
-      
+
       let test = async () => {
         await init();
         await connect();
@@ -47,7 +47,7 @@
         a.click();
         await disconnect();
       };
-          
+
     </script>
   </head>
   <body>

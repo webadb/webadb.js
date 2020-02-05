@@ -1,33 +1,177 @@
-<!DOCTYPE HTML>
+<!DOCTYPE html>
 <html>
 <head>
-    <script src="./webadb.js"></script>
-    <script src="./tcpip.js"></script>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no"/>
+    <meta name="theme-color" content="#2196F3">
+    <title>Material UI One Page Theme</title>
+
+    <!-- CSS  -->
+    <link href="css/font-awesome.min.css" type="text/css" rel="stylesheet">
+    <link href="css/materialize.min.css" type="text/css" rel="stylesheet">
+    <link href="css/style.css" type="text/css" rel="stylesheet">
+
 </head>
-<body>
-<button id="doEverything">Enable ADB over WiFi</button>
-<!--  <br />-->
-<!--  <br />-->
-<!--  <button id="connect">Connect</button>-->
-<!--  <br/>-->
-<!--  <br/>-->
+<body id="top" class="scrollspy">
 
-<!--  <button id="get_ip">Get IP addr</button>-->
-<!--  <br/>-->
-<!--  <br/>-->
-  <p>Port:
-  <input type="text" id="port" value="5555"/>
-  </p>
-<!--  <button id="tcpip" value="tcpip">tcpip</button>-->
-  <br/>
-  <br/>
+<!-- Pre Loader -->
+<div id="loader-wrapper">
+    <div id="loader"></div>
 
-<!--  <button id="disconnect">Disconnect</button>-->
-<!--  <br/>-->
-<!--  <br/>-->
-  <h2>Messages
-      <button id="clear">clear</button>
-  </h2>
-  <pre id="log"></pre>
+    <div class="loader-section section-left"></div>
+    <div class="loader-section section-right"></div>
+
+</div>
+
+<!--Navigation-->
+<div class="navbar-fixed">
+    <nav id="nav_f" class="default_color" role="navigation">
+        <div class="container">
+            <div class="nav-wrapper">
+                <a href="#" id="logo-container" class="brand-logo">ADB tcpip</a>
+            </div>
+        </div>
+    </nav>
+</div>
+
+<!--Hero-->
+<div class="section no-pad-bot" id="index-banner">
+    <div class="container">
+        <h1 class="text_h center header cd-headline letters type">
+            <span>Easily enable</span>
+            <span class="cd-words-wrapper waiting">
+                <b class="is-visible">ADB over WiFi</b>
+            </span>
+            <span>via USB</span>
+        </h1>
+    </div>
+</div>
+
+<!--Intro and service-->
+<div id="intro" class="section scrollspy">
+    <div class="container">
+        <div class="row">
+            <div class="col s12">
+                <h2 class="center header text_h2"><span class="span_h2">To get started</span>, connect the device of
+                    which you want to turn on <span class="span_h2">ADB over WiFi</span> via a <span class="span_h2">USB cable</span>.
+                </h2>
+                <h2 class="center header text_h2">Make sure said device has <span class="span_h2">USB Debugging</span>
+                    enabled. (<a class="span_h2"
+                                 href="https://developer.android.com/studio/debug/dev-options.html#enable">Learn
+                        here</a> how to do that.)</h2>
+            </div>
+            <div class="col s12 m3 l4"> </div>
+            <div class="col s12 m6 l4">
+                <div id="connect"
+                     class="center card promo promo-example waves-effect waves-block waves-dark">
+                    <div class="card-content">
+                        <i class="mdi-image-flash-on"></i>
+                        <h5 class="promo-caption">Connect</h5>
+                        <p class="light center">Select the device you want and make sure to grant all permissions, both
+                            on
+                            this device and on the target
+                            device.</p>
+                    </div>
+                </div>
+                <div id="connecting" style="display: none"
+                     class="center card promo promo-example waves-effect waves-block waves-dark">
+                    <div class="card-content">
+                        <i class="mdi-image-flash-on"></i>
+                        <h5 class="promo-caption">Connecting...</h5>
+                        <p class="light center" id="check-screen">Please check the screen of your device.</p>
+                    </div>
+                </div>
+                <div id="connected" style="display: none"
+                     class="center card promo promo-example">
+                    <div class="card-content">
+                        <i class="mdi-device-usb"></i>
+                        <h5 class="promo-caption">Connected! :)</h5>
+                        <p class="light center" id="connected-message">Which port do you want to enable ADB over WiFi
+                            on?</p>
+                        <p class="light center">Port: <input type="text" id="port" value="5555"/></p>
+                        <div class="card-action">
+                            <a class="span_h2" href="#" id="tcpip">Enable ADB over WiFi</a>
+                        </div>
+                    </div>
+                </div>
+                <div id="disconnect" style="display: none"
+                     class="center card promo promo-example waves-effect waves-block waves-dark">
+                    <div class="card-content">
+                        <i class="mdi-device-usb"></i>
+                        <h5 class="promo-caption">Finished! Disconnect.</h5>
+                        <p class="light center">ADB over WiFi should now be enabled! Press here to disconnect.</p>
+                    </div>
+                </div>
+
+            </div>
+            <div class="col s12 m3 l4"> </div>
+        </div>
+    </div>
+</div>
+
+<!--Parallax-->
+<div class="parallax-container">
+    <div class="parallax"><img src="img/parallax1.png"></div>
+</div>
+
+<div class="section scrollspy" id="disclaimer">
+    <div class="container">
+        <h2 class="header text_b"> Disclaimer </h2>
+        <p class="flow-text">This website is based on <a href="https://github.com/webadb/webadb.js">WebADB.js</a> and
+            the creator deserves
+            some credit!</p>
+        <p class="flow-text">
+            This webpage uses the <a href="https://developer.android.com/studio/command-line/adb.html">ADB</a> protocol
+            over
+            <a href="https://wicg.github.io/webusb">WebUSB</a> to access the Android device connected to your PC via
+            USB.
+            The whole elaboration is done locally and under your complete responsibility.<br>
+        </p>
+        <p class="flow-text">Be careful with this tool: <a href="https://labs.mwrinfosecurity.com/blog/webusb/">What
+            could possibly go
+            wrong?</a>
+        </p>
+    </div>
+</div>
+
+<!--Footer-->
+<footer id="contact" class="page-footer default_color scrollspy">
+    <div class="container">
+        <div class="row">
+            <div class="col l3 s12">
+                <h5 class="white-text">This tool was made by Jolan Rensen</h5>
+                <ul>
+                    <li><a class="white-text" href="https://www.jolanrensen.nl/">Website</a></li>
+                </ul>
+            </div>
+            <div class="col l3 s12">
+                <h5 class="white-text">Donate</h5>
+                <ul>
+                    <li>
+                        <a class="white-text" href="https://paypal.me/jolanrensen">
+                            <i class="small fa fa-paypal white-text"></i> Paypal
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="footer-copyright default_color">
+        <div class="container">
+            Theme made by <a class="white-text" href="http://joashpereira.com">Joash Pereira</a>. Thanks to <a
+                class="white-text" href="http://materializecss.com/">materializecss</a>
+        </div>
+    </div>
+</footer>
+
+
+<!--  Scripts-->
+<script src="js/jquery-2.1.1.min.js"></script>
+<script src="js/materialize.min.js"></script>
+<script src="js/modernizr.js"></script>
+<script src="js/webadb.js"></script>
+<script src="js/init.js"></script>
+<!--<script src="js/tcpip.js"></script>-->
+
 </body>
 </html>
