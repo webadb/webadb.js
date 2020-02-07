@@ -135,6 +135,9 @@ var Adb = {};
 					adb.max_payload = response.arg1;
 					if (response.arg0 == VERSION_NO_CHECKSUM)
 						Adb.Opt.use_checksum = false;
+					adb.banner = new TextDecoder("utf-8").decode(response.data);
+					let pieces = adb.banner.split(':');
+					adb.mode = pieces[0];
 					return adb;
 				})
 			);
