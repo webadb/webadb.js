@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: MIT
 
-var Adb = {};
-
-(function() {
+(function(root, factory) {
+	if (typeof define === 'function' && define.amd) {
+		define([], factory);
+	} else if (typeof exports === 'object') {
+		module.exports = factory();
+	} else {
+		root.Adb = factory();
+	}
+}(this, function() {
 	'use strict';
+
+	let Adb = {};
 
 	Adb.Opt = {};
 	Adb.Opt.debug = false;
@@ -77,7 +85,7 @@ var Adb = {};
 					if (filter.classCode == alt.interfaceClass &&
 					    filter.subclassCode == alt.interfaceSubclass &&
 					    filter.protocolCode == alt.interfaceProtocol) {
-						return { conf: conf, intf: intf, alt: alt };	
+						return { conf: conf, intf: intf, alt: alt };
 					}
 				}
 			}
@@ -216,7 +224,7 @@ var Adb = {};
 		this.ep_in = get_ep_num(match.alt.endpoints, "in");
 		this.ep_out = get_ep_num(match.alt.endpoints, "out");
 	};
-	
+
 	Fastboot.WebUSB.Device.prototype.send = function(data) {
 		if (typeof data === "string") {
 			let encoder = new TextEncoder();
@@ -1034,4 +1042,6 @@ var Adb = {};
 			return result;
 		});
 	}
-})();
+
+	return Adb;
+}));
