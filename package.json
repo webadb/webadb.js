@@ -1,0 +1,20 @@
+{
+  "name": "webadb",
+  "version": "1.0.0",
+  "description": "ADB host implementation based on WebUSB",
+  "main": "webadb.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webadb/webadb.js.git"
+  },
+  "keywords": [
+    "webusb",
+    "adb"
+  ],
+  "author": "Domenico Andreoli <domenico.andreoli@linux.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/webadb/webadb.js/issues"
+  },
+  "homepage": "https://github.com/webadb/webadb.js#readme"
+}
