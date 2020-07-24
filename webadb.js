@@ -58,6 +58,10 @@
 		this.device.close();
 	};
 
+	Adb.WebUSB.Transport.prototype.reset = function() {
+		this.device.reset();
+	};
+
 	Adb.WebUSB.Transport.prototype.send = function(ep, data) {
 		if (Adb.Opt.dump)
 			hexdump(new DataView(data), "" + ep + "==> ");
@@ -175,6 +179,8 @@
 
 		this.ep_in = get_ep_num(match.alt.endpoints, "in");
 		this.ep_out = get_ep_num(match.alt.endpoints, "out");
+
+		this.transport.reset();
 	}
 
 	Adb.WebUSB.Device.prototype.open = function(service) {
